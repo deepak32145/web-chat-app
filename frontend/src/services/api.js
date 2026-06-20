@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -81,6 +81,13 @@ export const getUserConversations = () => {
 
 export const getConversationDetail = (conversationId) => {
   return apiClient.get(`/conversations/${conversationId}`);
+};
+
+// File Upload APIs
+export const uploadFile = (formData) => {
+  return apiClient.post('/files/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
 };
 
 // Message APIs

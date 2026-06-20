@@ -71,6 +71,17 @@ public class UserController {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
     }
+
+    // POST variant used by navigator.sendBeacon on browser close
+    @PostMapping("/{userId}/offline")
+    public ResponseEntity<?> setUserOfflineBeacon(@PathVariable Long userId) {
+        try {
+            userService.setUserOffline(userId);
+            return ResponseEntity.ok("User set as offline");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        }
+    }
     
     @PutMapping("/{userId}/profile")
     public ResponseEntity<?> updateUserProfile(

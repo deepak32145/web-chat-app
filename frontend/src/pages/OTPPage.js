@@ -43,7 +43,7 @@ const OTPPage = ({ onSuccess }) => {
       );
       
       if (response.data && response.data.id) {
-        onSuccess(response.data.id, phoneNumber, response.data.token);
+        onSuccess(response.data.id, phoneNumber, response.data.token, response.data.firstName, response.data.lastName);
         localStorage.removeItem('tempPhoneNumber');
         navigate('/dashboard');
       } else {

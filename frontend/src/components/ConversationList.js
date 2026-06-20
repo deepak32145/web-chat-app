@@ -20,7 +20,7 @@ const ConversationList = ({ conversations, userId, onSelect }) => {
   };
 
   const getUnreadCount = (messages) => {
-    return (messages || []).filter((m) => !m.isRead).length;
+    return (messages || []).filter((m) => !m.isRead && m.sender?.id !== userId).length;
   };
 
   const getLastMessage = (messages) => {

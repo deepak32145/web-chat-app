@@ -7,6 +7,7 @@ import {
   searchUser,
   createOrGetConversation,
   getUserConversations,
+  getConversationDetail,
   setUserOnline,
   setUserOffline,
 } from '../services/api';
@@ -17,7 +18,7 @@ import MessageList from '../components/MessageList';
 import MessageInput from '../components/MessageInput';
 import '../styles/DashboardPage.css';
 
-const DashboardPage = ({ userId, userPhone, onLogout }) => {
+const DashboardPage = ({ userId, userPhone, userName, onLogout }) => {
   const [conversations, setConversations] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -26,7 +27,6 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatPartner, setChatPartner] = useState(null);
   const stompClientRef = useRef(null);
-  const presenceClientRef = useRef(null);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
 
@@ -35,24 +35,19 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
     loadOnlineUsers();
     setUserOnline(userId);
 
-    // Persistent presence connection — backend's SessionDisconnectEvent fires
-    // when this drops (tab close, crash, network loss), setting user offline automatically
-    const presenceClient = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
-      connectHeaders: { userId: String(userId) },
-      reconnectDelay: 5000,
-    });
-    presenceClient.activate();
-    presenceClientRef.current = presenceClient;
+    // sendBeacon fires reliably even when the tab/browser is force-closed,
+    // unlike fetch or cleanup functions which are skipped on hard close.
+    const handleUnload = () => {
+      navigator.sendBeacon(`${process.env.REACT_APP_API_URL || 'http://localhost:8080/api'}/users/${userId}/offline`);
+    };
+    window.addEventListener('beforeunload', handleUnload);
 
-    const interval = setInterval(loadOnlineUsers, 30000);
+    const interval = setInterval(loadOnlineUsers, 10000);
 
     return () => {
       clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnload);
       setUserOffline(userId);
-      if (presenceClientRef.current) {
-        presenceClientRef.current.deactivate();
-      }
       if (stompClientRef.current) {
         stompClientRef.current.deactivate();
       }
@@ -80,6 +75,13 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
       const response = await getAllOnlineUsers();
       const others = (response.data || []).filter((u) => u.id !== parseInt(userId));
       setOnlineUsers(others);
+
+      // Keep active chat partner's status in sync with each poll
+      setChatPartner((prev) => {
+        if (!prev) return prev;
+        const isOnline = others.some((u) => u.id === prev.id);
+        return { ...prev, status: isOnline ? 'online' : 'offline' };
+      });
     } catch (err) {
       console.error('Failed to load online users');
     }
@@ -91,12 +93,36 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
     }
 
     const client = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+      webSocketFactory: () => new SockJS(process.env.REACT_APP_WS_URL || 'http://localhost:8080/ws'),
       reconnectDelay: 5000,
       onConnect: () => {
         client.subscribe(`/topic/conversation/${conversationId}`, (frame) => {
           const msg = JSON.parse(frame.body);
-          setChatMessages((prev) => [...prev, msg]);
+
+          // Update open chat messages
+          setChatMessages((prev) => {
+            const withoutTemp = prev.filter(
+              (m) => !(String(m.id).startsWith('temp-') && m.content === msg.content && m.sender?.id === msg.sender?.id)
+            );
+            if (withoutTemp.some((m) => m.id === msg.id)) return withoutTemp;
+            return [...withoutTemp, msg];
+          });
+
+          // Update conversation list: replace last message preview and move to top
+          setConversations((prev) => {
+            const target = prev.find((c) => c.id === conversationId);
+            if (!target) return prev;
+            const updated = {
+              ...target,
+              messages: [
+                ...(target.messages || [])
+                  .filter((m) => !(String(m.id).startsWith('temp-') && m.content === msg.content && m.sender?.id === msg.sender?.id))
+                  .filter((m) => m.id !== msg.id),
+                msg,
+              ],
+            };
+            return [updated, ...prev.filter((c) => c.id !== conversationId)];
+          });
         });
       },
       onStompError: (frame) => {
@@ -111,13 +137,26 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
   const sortMessages = (messages) =>
     [...(messages || [])].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
-  const openChatWithConversation = (conversation) => {
+  const openChatWithConversation = async (conversation) => {
     setError('');
+    connectWebSocket(conversation.id);
+    // Show stale messages instantly, then replace with fresh data
+    setChatMessages(sortMessages(conversation.messages));
     const other = conversation.participants?.find((p) => p.id !== parseInt(userId));
     setActiveChatConv(conversation);
     setChatPartner(other || null);
-    setChatMessages(sortMessages(conversation.messages));
-    connectWebSocket(conversation.id);
+    try {
+      const response = await getConversationDetail(conversation.id);
+      const fresh = response.data;
+      setChatMessages(sortMessages(fresh.messages));
+      setActiveChatConv(fresh);
+      // Sync fresh messages back into the conversation list entry
+      setConversations((prev) =>
+        prev.map((c) => (c.id === fresh.id ? { ...c, messages: fresh.messages } : c))
+      );
+    } catch {
+      // stale data already shown above, no-op on failure
+    }
   };
 
   const openChatWithUser = async (user) => {
@@ -149,16 +188,34 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
     }
   };
 
-  const handleSendMessage = (content) => {
-    if (!stompClientRef.current?.connected || !content.trim() || !activeChatConv) return;
+  const handleSendMessage = (content, mediaUrl = null, mediaType = null) => {
+    if (!stompClientRef.current?.connected || (!content.trim() && !mediaUrl) || !activeChatConv) return;
+
+    const optimisticMessage = {
+      id: `temp-${Date.now()}`,
+      content,
+      sender: { id: parseInt(userId) },
+      createdAt: new Date().toISOString(),
+      mediaUrl,
+      mediaType,
+    };
+    setChatMessages((prev) => [...prev, optimisticMessage]);
+
+    setConversations((prev) => {
+      const target = prev.find((c) => c.id === activeChatConv.id);
+      if (!target) return prev;
+      const updated = { ...target, messages: [...(target.messages || []), optimisticMessage] };
+      return [updated, ...prev.filter((c) => c.id !== activeChatConv.id)];
+    });
+
     stompClientRef.current.publish({
       destination: '/app/chat',
       body: JSON.stringify({
         userId: parseInt(userId),
         conversationId: activeChatConv.id,
         content,
-        mediaUrl: null,
-        mediaType: null,
+        mediaUrl,
+        mediaType,
       }),
     });
   };
@@ -184,7 +241,10 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
       <div className="dashboard-header">
         <h1>Chat App</h1>
         <div className="header-actions">
-          <span className="user-phone">{userPhone}</span>
+          <div className="user-info-header">
+            {userName && <span className="user-name">{userName}</span>}
+            <span className="user-phone">{userPhone}</span>
+          </div>
           <button onClick={handleLogout} className="btn-logout">Logout</button>
         </div>
       </div>
@@ -233,7 +293,9 @@ const DashboardPage = ({ userId, userPhone, onLogout }) => {
                       ? `${chatPartner.firstName} ${chatPartner.lastName || ''}`.trim()
                       : chatPartner?.phoneNumber}
                     </h3>
-                    <span className="online-badge">● Online</span>
+                    <span className={chatPartner?.status === 'online' ? 'online-badge' : 'offline-badge'}>
+                      ● {chatPartner?.status === 'online' ? 'Online' : 'Offline'}
+                    </span>
                   </div>
                 </div>
                 <button className="btn-close-chat" onClick={closeChat}>✕</button>

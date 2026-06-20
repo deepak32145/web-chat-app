@@ -55,7 +55,7 @@ public class AuthController {
                 return ResponseEntity.badRequest().body(new AuthResponse());
             }
             
-            User user = userOptional.get();
+            User user = userOptional.orElseThrow();
             
             // Update user profile if provided (only for new users or explicit non-blank values)
             if (request.getFirstName() != null && !request.getFirstName().isBlank()) {
@@ -65,13 +65,15 @@ public class AuthController {
                 user.setLastName(request.getLastName());
             }
             
-            user = userRepository.save(user);
+            userRepository.save(user);
             
             // TODO: Generate JWT token
             AuthResponse response = new AuthResponse();
             response.setId(user.getId());
             response.setUsername(user.getUsername());
             response.setEmail(user.getEmail());
+            response.setFirstName(user.getFirstName());
+            response.setLastName(user.getLastName());
             response.setToken("jwt_token_here_" + user.getId()); // Placeholder
             response.setType("Bearer");
             

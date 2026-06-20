@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(cd \"c:\\\\Users\\\\deepa\\\\Desktop\\\\backToGurgaon\\\\java-host-code\\\\frontend\"; $env:CI = \"true\"; npm run test:coverage 2>&1 | Select-Object -Last 60)",
+      "PowerShell(cd \"c:\\\\Users\\\\deepa\\\\Desktop\\\\backToGurgaon\\\\java-host-code\\\\frontend\"; $env:CI = \"true\"; npm run test:coverage 2>&1 | Select-Object -Last 30)"
+    ]
+  }
+}

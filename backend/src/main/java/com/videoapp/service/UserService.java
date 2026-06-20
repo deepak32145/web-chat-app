@@ -7,14 +7,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class UserService {
-    
+
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private OnlineUserTracker onlineUserTracker;
     
     public UserDTO searchUserByPhoneNumber(String phoneNumber) {
         Optional<User> userOptional = userRepository.findByPhoneNumber(phoneNumber);
@@ -27,8 +32,11 @@ public class UserService {
     }
     
     public List<UserDTO> getAllOnlineUsers(Long currentUserId) {
-        List<User> onlineUsers = userRepository.findAllOnlineUsersExcluding(currentUserId);
-        return onlineUsers.stream().map(this::convertToDTO).collect(Collectors.toList());
+        Set<Long> onlineIds = onlineUserTracker.getOnlineUserIds();
+        return userRepository.findAllById(onlineIds).stream()
+                .filter(u -> !Objects.equals(u.getId(), currentUserId))
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
     }
     
     public UserDTO getUserById(Long userId) {
@@ -42,25 +50,11 @@ public class UserService {
     }
     
     public void setUserOnline(Long userId) {
-        Optional<User> userOptional = userRepository.findById(userId);
-        
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
-            user.setStatus("online");
-            user.setLastSeen(LocalDateTime.now());
-            userRepository.save(user);
-        }
+        onlineUserTracker.markOnline(userId);
     }
-    
+
     public void setUserOffline(Long userId) {
-        Optional<User> userOptional = userRepository.findById(userId);
-        
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
-            user.setStatus("offline");
-            user.setLastSeen(LocalDateTime.now());
-            userRepository.save(user);
-        }
+        onlineUserTracker.markOffline(userId);
     }
     
     public void updateUserProfile(Long userId, String firstName, String lastName, String bio, String profilePicture) {

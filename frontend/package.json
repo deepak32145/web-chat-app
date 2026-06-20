@@ -16,10 +16,41 @@
     "tailwindcss": "^3.3.0"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
+    "start": "env-cmd -f .env.local react-scripts start",
+    "start:dev": "env-cmd -f .env.dev react-scripts start",
+    "start:uat": "env-cmd -f .env.uat react-scripts start",
+    "build:dev": "env-cmd -f .env.dev react-scripts build",
+    "build:uat": "env-cmd -f .env.uat react-scripts build",
+    "build:prod": "env-cmd -f .env.production react-scripts build",
     "test": "react-scripts test",
+    "test:coverage": "react-scripts test --coverage --watchAll=false --forceExit",
     "eject": "react-scripts eject"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "src/**/*.{js,jsx}",
+      "!src/index.js",
+      "!src/App.js",
+      "!src/App.css",
+      "!src/setupTests.js",
+      "!src/pages/ChatPage.js",
+      "!src/pages/DashboardPage.js",
+      "!src/context/ChatContext.js",
+      "!src/services/api.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 70,
+        "functions": 75,
+        "lines": 75,
+        "statements": 75
+      }
+    },
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ]
   },
   "eslintConfig": {
     "extends": [
@@ -39,6 +70,10 @@
     ]
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "env-cmd": "^11.0.0",
     "react-scripts": "5.0.1"
   }
 }
